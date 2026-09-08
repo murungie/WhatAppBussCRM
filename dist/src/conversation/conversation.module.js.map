@@ -1,0 +1,1 @@
+{"version":3,"file":"conversation.module.js","sourceRoot":"","sources":["../../../src/conversation/conversation.module.ts"],"names":[],"mappings":";;;;;;;;;AAAA,2CAAwC;AAExC,iEAA6D;AAWtD,IAAM,kBAAkB,GAAxB,MAAM,kBAAkB;CAAG,CAAA;AAArB,gDAAkB;6BAAlB,kBAAkB;IAT9B,IAAA,eAAM,EAAC;QACN,SAAS,EAAE;YACT,0CAAmB;SACpB;QAED,OAAO,EAAE;YACP,0CAAmB;SACpB;KACF,CAAC;GACW,kBAAkB,CAAG"}
