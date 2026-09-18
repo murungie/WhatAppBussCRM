@@ -45,6 +45,9 @@ export class BroadcastsService {
           type: 'TEXT',
           message: dto.message.trim(),
           segment: dto.segment?.trim() || 'ALL',
+          scheduledAt: dto.scheduledAt
+      ? new Date(dto.scheduledAt)
+      : null,
         },
       });
     }
@@ -77,6 +80,9 @@ export class BroadcastsService {
           templateParameters:
             dto.templateParameters ?? [],
           segment: dto.segment?.trim() || 'ALL',
+          scheduledAt: dto.scheduledAt
+      ? new Date(dto.scheduledAt)
+      : null,
         },
       });
     }
@@ -90,26 +96,111 @@ export class BroadcastsService {
   // GET ALL BROADCASTS
   // ============================================================
 
+   // ============================================================
+  // GET PAGINATED / FILTERED BROADCASTS
+  // ============================================================
+
   async findAll(
     businessId: string,
+    page = 1,
+    limit = 20,
+    status?: string,
   ) {
-    return this.prisma.broadcast.findMany({
-      where: {
-        businessId,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      include: {
-        _count: {
-          select: {
-            recipients: true,
-          },
-        },
-      },
-    });
-  }
+    const safePage =
+      Number.isFinite(page) && page > 0
+        ? Math.floor(page)
+        : 1;
 
+    const safeLimit =
+      Number.isFinite(limit) && limit > 0
+        ? Math.min(Math.floor(limit), 100)
+        : 20;
+
+    const normalizedStatus =
+      status?.trim().toUpperCase();
+
+    const validStatuses = [
+      'DRAFT',
+      'QUEUED',
+      'PROCESSING',
+      'COMPLETED',
+      'FAILED',
+      'CANCELLED',
+    ] as const;
+
+    let statusFilter:
+      | (typeof validStatuses)[number]
+      | undefined;
+
+    if (normalizedStatus) {
+      if (
+        !validStatuses.includes(
+          normalizedStatus as
+            (typeof validStatuses)[number],
+        )
+      ) {
+        throw new ConflictException(
+          `Invalid broadcast status: ${status}`,
+        );
+      }
+
+      statusFilter =
+        normalizedStatus as
+          (typeof validStatuses)[number];
+    }
+
+    const where = {
+      businessId,
+      ...(statusFilter
+        ? {
+            status: statusFilter,
+          }
+        : {}),
+    };
+
+    const skip =
+      (safePage - 1) * safeLimit;
+
+    const [total, broadcasts] =
+      await Promise.all([
+        this.prisma.broadcast.count({
+          where,
+        }),
+
+        this.prisma.broadcast.findMany({
+          where,
+          orderBy: {
+            createdAt: 'desc',
+          },
+          skip,
+          take: safeLimit,
+          include: {
+            _count: {
+              select: {
+                recipients: true,
+              },
+            },
+          },
+        }),
+      ]);
+
+    const totalPages =
+      Math.ceil(total / safeLimit);
+
+    return {
+      data: broadcasts,
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages,
+        hasNextPage:
+          safePage < totalPages,
+        hasPreviousPage:
+          safePage > 1,
+      },
+    };
+  }
   // ============================================================
   // GET ONE BROADCAST
   // ============================================================
@@ -145,6 +236,140 @@ export class BroadcastsService {
     return broadcast;
   }
 
+    // ============================================================
+  // GET BROADCAST ANALYTICS
+  // GET /broadcasts/:id/analytics
+  // ============================================================
+
+  async getAnalytics(
+    businessId: string,
+    broadcastId: string,
+  ) {
+    const broadcast =
+      await this.prisma.broadcast.findFirst({
+        where: {
+          id: broadcastId,
+          businessId,
+        },
+        select: {
+          id: true,
+          status: true,
+          type: true,
+          message: true,
+          templateName: true,
+          segment: true,
+          totalRecipients: true,
+          sentCount: true,
+          deliveredCount: true,
+          readCount: true,
+          failedCount: true,
+          scheduledAt: true,
+          sentAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+    if (!broadcast) {
+      throw new NotFoundException(
+        'Broadcast not found',
+      );
+    }
+
+    const [
+      pendingCount,
+      windowExpiredCount,
+    ] = await Promise.all([
+      this.prisma.broadcastRecipient.count({
+        where: {
+          broadcastId,
+          status: 'PENDING',
+        },
+      }),
+
+      this.prisma.broadcastRecipient.count({
+        where: {
+          broadcastId,
+          status: 'WINDOW_EXPIRED',
+        },
+      }),
+    ]);
+
+    const sent =
+      broadcast.sentCount;
+
+    const delivered =
+      broadcast.deliveredCount;
+
+    const read =
+      broadcast.readCount;
+
+    const failed =
+      broadcast.failedCount;
+
+    const total =
+      broadcast.totalRecipients;
+
+    const deliveryRate =
+      sent > 0
+        ? Number(
+            ((delivered / sent) * 100).toFixed(2),
+          )
+        : 0;
+
+    const readRate =
+      sent > 0
+        ? Number(
+            ((read / sent) * 100).toFixed(2),
+          )
+        : 0;
+
+    const failureRate =
+      total > 0
+        ? Number(
+            ((failed / total) * 100).toFixed(2),
+          )
+        : 0;
+
+    const sentRate =
+      total > 0
+        ? Number(
+            ((sent / total) * 100).toFixed(2),
+          )
+        : 0;
+
+    return {
+      broadcast: {
+        id: broadcast.id,
+        status: broadcast.status,
+        type: broadcast.type,
+        message: broadcast.message,
+        templateName: broadcast.templateName,
+        segment: broadcast.segment,
+        scheduledAt: broadcast.scheduledAt,
+        sentAt: broadcast.sentAt,
+        createdAt: broadcast.createdAt,
+        updatedAt: broadcast.updatedAt,
+      },
+
+      summary: {
+        totalRecipients: total,
+        sent,
+        delivered,
+        read,
+        failed,
+        pending: pendingCount,
+        windowExpired: windowExpiredCount,
+      },
+
+      rates: {
+        sentRate,
+        deliveryRate,
+        readRate,
+        failureRate,
+      },
+    };
+  }
   // ============================================================
   // ADD RECIPIENTS
   // ============================================================
@@ -349,13 +574,14 @@ export class BroadcastsService {
     }
 
     if (
-      broadcast.status !== 'DRAFT' &&
-      broadcast.status !== 'FAILED'
-    ) {
-      throw new ConflictException(
-        `Broadcast cannot be sent while in ${broadcast.status} status`,
-      );
-    }
+  broadcast.status !== 'DRAFT' &&
+  broadcast.status !== 'FAILED' &&
+  broadcast.status !== 'QUEUED'
+) {
+  throw new ConflictException(
+    `Broadcast cannot be sent while in ${broadcast.status} status`,
+  );
+}
 
     if (broadcast.recipients.length === 0) {
       throw new ConflictException(
@@ -553,16 +779,17 @@ export class BroadcastsService {
         // ======================================================
 
         await this.prisma.broadcastRecipient.update({
-          where: {
-            id: recipient.id,
-          },
-          data: {
-            status: 'SENT',
-            waMessageId,
-            sentAt: new Date(),
-            error: null,
-          },
-        });
+  where: {
+    id: recipient.id,
+  },
+  data: {
+    status: 'SENT',
+    deliveryStatus: 'SENT',
+    waMessageId,
+    sentAt: new Date(),
+    error: null,
+  },
+});
 
         // ======================================================
         // SAVE MESSAGE HISTORY
@@ -588,14 +815,15 @@ export class BroadcastsService {
             : 'Unknown WhatsApp error';
 
         await this.prisma.broadcastRecipient.update({
-          where: {
-            id: recipient.id,
-          },
-          data: {
-            status: 'FAILED',
-            error: errorMessage,
-          },
-        });
+  where: {
+    id: recipient.id,
+  },
+  data: {
+    status: 'FAILED',
+    deliveryStatus: 'FAILED',
+    error: errorMessage,
+  },
+});
 
         failedCount++;
       }
@@ -615,11 +843,12 @@ export class BroadcastsService {
         id: broadcastId,
       },
       data: {
-        sentCount,
-        failedCount,
-        sentAt: new Date(),
-        status: finalStatus,
-      },
+  sentCount,
+  failedCount,
+  sentAt: new Date(),
+  status: finalStatus,
+  queueJobId: null,
+},
       include: {
         recipients: {
           include: {
@@ -668,4 +897,685 @@ export class BroadcastsService {
       },
     });
   }
+
+  async processQueuedBroadcast(
+  broadcastId: string,
+) {
+  const broadcast =
+    await this.prisma.broadcast.findUnique({
+      where: {
+        id: broadcastId,
+      },
+    });
+
+  if (!broadcast) {
+    throw new NotFoundException(
+      'Broadcast not found',
+    );
+  }
+
+  return this.sendBroadcast(
+    broadcast.businessId,
+    broadcastId,
+  );
+}
+
+async validateForQueue(
+  businessId: string,
+  broadcastId: string,
+) {
+  const broadcast =
+    await this.prisma.broadcast.findFirst({
+      where: {
+        id: broadcastId,
+        businessId,
+      },
+      include: {
+        recipients: {
+          where: {
+            status: {
+              in: [
+                'PENDING',
+                'FAILED',
+              ],
+            },
+          },
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+
+  if (!broadcast) {
+    throw new NotFoundException(
+      'Broadcast not found',
+    );
+  }
+
+  if (
+    broadcast.status !== 'DRAFT' &&
+    broadcast.status !== 'FAILED'
+  ) {
+    throw new ConflictException(
+      `Broadcast cannot be queued while in ${broadcast.status} status`,
+    );
+  }
+
+  if (broadcast.recipients.length === 0) {
+    throw new ConflictException(
+      'Broadcast has no pending or retryable recipients',
+    );
+  }
+
+  return broadcast;
+}
+// ============================================================
+// ATOMICALLY CLAIM BROADCAST FOR QUEUING
+// ============================================================
+
+async claimForQueue(
+  businessId: string,
+  broadcastId: string,
+) {
+  const broadcast =
+    await this.prisma.broadcast.findFirst({
+      where: {
+        id: broadcastId,
+        businessId,
+      },
+      include: {
+        recipients: {
+          where: {
+            status: {
+              in: [
+                'PENDING',
+                'FAILED',
+              ],
+            },
+          },
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+
+  if (!broadcast) {
+    throw new NotFoundException(
+      'Broadcast not found',
+    );
+  }
+
+  if (
+    broadcast.status !== 'DRAFT' &&
+    broadcast.status !== 'FAILED'
+  ) {
+    throw new ConflictException(
+      `Broadcast cannot be queued while in ${broadcast.status} status`,
+    );
+  }
+
+  if (broadcast.recipients.length === 0) {
+    throw new ConflictException(
+      'Broadcast has no pending or retryable recipients',
+    );
+  }
+
+  // ----------------------------------------------------------
+  // Atomic state transition
+  // ----------------------------------------------------------
+
+  const claimed =
+    await this.prisma.broadcast.updateMany({
+      where: {
+        id: broadcastId,
+        businessId,
+        status: {
+          in: [
+            'DRAFT',
+            'FAILED',
+          ],
+        },
+      },
+      data: {
+        status: 'QUEUED',
+        queueJobId: null,
+      },
+    });
+
+  if (claimed.count !== 1) {
+    throw new ConflictException(
+      'Broadcast was already queued or is being processed',
+    );
+  }
+
+  const queuedBroadcast =
+    await this.prisma.broadcast.findFirst({
+      where: {
+        id: broadcastId,
+        businessId,
+      },
+    });
+
+  if (!queuedBroadcast) {
+    throw new NotFoundException(
+      'Broadcast could not be loaded after being queued',
+    );
+  }
+
+  return queuedBroadcast;
+}
+async markQueued(
+  businessId: string,
+  broadcastId: string,
+) {
+  const broadcast =
+    await this.prisma.broadcast.findFirst({
+      where: {
+        id: broadcastId,
+        businessId,
+      },
+    });
+
+  if (!broadcast) {
+    throw new NotFoundException(
+      'Broadcast not found',
+    );
+  }
+
+  return this.prisma.broadcast.update({
+    where: {
+      id: broadcastId,
+    },
+    data: {
+      status: 'QUEUED',
+    },
+  });
+}
+
+async markFailedToQueue(
+  businessId: string,
+  broadcastId: string,
+  error?: string,
+) {
+  const broadcast =
+    await this.prisma.broadcast.findFirst({
+      where: {
+        id: broadcastId,
+        businessId,
+      },
+    });
+
+  if (!broadcast) {
+    return null;
+  }
+
+  return this.prisma.broadcast.update({
+    where: {
+      id: broadcastId,
+    },
+    data: {
+  status: 'FAILED',
+  queueJobId: null,
+},
+  });
+}
+
+async markQueueProcessingFailed(
+  broadcastId: string,
+  error?: string,
+) {
+  const broadcast =
+    await this.prisma.broadcast.findUnique({
+      where: {
+        id: broadcastId,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+  if (!broadcast) {
+    return null;
+  }
+
+  if (
+    broadcast.status === 'COMPLETED' ||
+    broadcast.status === 'FAILED' ||
+    broadcast.status === 'CANCELLED'
+  ) {
+    return broadcast;
+  }
+
+  return this.prisma.broadcast.update({
+    where: {
+      id: broadcastId,
+    },
+    data: {
+      status: 'FAILED',
+    },
+  });
+}
+
+async saveQueueJobId(
+  businessId: string,
+  broadcastId: string,
+  jobId: string,
+) {
+  const broadcast =
+    await this.prisma.broadcast.findFirst({
+      where: {
+        id: broadcastId,
+        businessId,
+      },
+    });
+
+  if (!broadcast) {
+    throw new NotFoundException(
+      'Broadcast not found',
+    );
+  }
+
+  return this.prisma.broadcast.update({
+    where: {
+      id: broadcastId,
+    },
+    data: {
+      queueJobId: jobId,
+    },
+  });
+}
+
+async cancelBroadcast(
+  businessId: string,
+  broadcastId: string,
+) {
+  const broadcast =
+    await this.prisma.broadcast.findFirst({
+      where: {
+        id: broadcastId,
+        businessId,
+      },
+    });
+
+  if (!broadcast) {
+    throw new NotFoundException(
+      'Broadcast not found',
+    );
+  }
+
+  if (broadcast.status === 'COMPLETED') {
+    throw new ConflictException(
+      'Completed broadcasts cannot be cancelled',
+    );
+  }
+
+  if (broadcast.status === 'PROCESSING') {
+    throw new ConflictException(
+      'A broadcast that is currently processing cannot be cancelled',
+    );
+  }
+
+  if (broadcast.status === 'CANCELLED') {
+    throw new ConflictException(
+      'Broadcast is already cancelled',
+    );
+  }
+
+  return broadcast;
+}
+
+async markCancelled(
+  businessId: string,
+  broadcastId: string,
+) {
+  const broadcast =
+    await this.prisma.broadcast.findFirst({
+      where: {
+        id: broadcastId,
+        businessId,
+      },
+    });
+
+  if (!broadcast) {
+    throw new NotFoundException(
+      'Broadcast not found',
+    );
+  }
+
+  return this.prisma.broadcast.update({
+    where: {
+      id: broadcastId,
+    },
+    data: {
+  status: 'CANCELLED',
+  queueJobId: null,
+},
+  });
+}
+async prepareBroadcastRetry(
+  businessId: string,
+  broadcastId: string,
+) {
+  const broadcast =
+    await this.prisma.broadcast.findFirst({
+      where: {
+        id: broadcastId,
+        businessId,
+      },
+      include: {
+        recipients: {
+          where: {
+            status: {
+              in: [
+                'FAILED',
+                'WINDOW_EXPIRED',
+              ],
+            },
+          },
+          select: {
+            id: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+  if (!broadcast) {
+    throw new NotFoundException(
+      'Broadcast not found',
+    );
+  }
+
+  if (broadcast.status !== 'FAILED') {
+    throw new ConflictException(
+      `Only failed broadcasts can be retried. Current status: ${broadcast.status}`,
+    );
+  }
+
+  if (broadcast.recipients.length === 0) {
+    throw new ConflictException(
+      'Broadcast has no failed recipients to retry',
+    );
+  }
+
+  await this.prisma.broadcastRecipient.updateMany({
+    where: {
+      broadcastId,
+      status: {
+        in: [
+          'FAILED',
+          'WINDOW_EXPIRED',
+        ],
+      },
+    },
+    data: {
+  status: 'PENDING',
+  deliveryStatus: null,
+  error: null,
+  waMessageId: null,
+  sentAt: null,
+},
+  });
+
+  await this.prisma.broadcast.update({
+    where: {
+      id: broadcastId,
+    },
+    data: {
+  sentCount: 0,
+  deliveredCount: 0,
+  readCount: 0,
+  failedCount: 0,
+  sentAt: null,
+  status: 'DRAFT',
+},
+  });
+
+  return this.prisma.broadcast.findUnique({
+    where: {
+      id: broadcastId,
+    },
+    include: {
+      recipients: {
+        include: {
+          customer: true,
+        },
+      },
+    },
+  });
+}
+
+
+async updateBroadcastDeliveryStatus(
+  businessId: string,
+  waMessageId: string,
+  status:
+    | 'SENT'
+    | 'DELIVERED'
+    | 'READ'
+    | 'FAILED',
+  error?: string,
+) {
+  const recipient =
+    await this.prisma.broadcastRecipient.findFirst({
+      where: {
+        waMessageId,
+        broadcast: {
+          businessId,
+        },
+      },
+      select: {
+        id: true,
+        broadcastId: true,
+      },
+    });
+
+  if (!recipient) {
+    return null;
+  }
+
+  // ==========================================================
+  // SENT
+  // Only move NULL -> SENT.
+  // Never downgrade DELIVERED / READ / FAILED.
+  // ==========================================================
+
+  if (status === 'SENT') {
+    await this.prisma.broadcastRecipient.updateMany({
+      where: {
+        id: recipient.id,
+        deliveryStatus: null,
+      },
+      data: {
+        deliveryStatus: 'SENT',
+      },
+    });
+
+    return this.prisma.broadcastRecipient.findUnique({
+      where: {
+        id: recipient.id,
+      },
+    });
+  }
+
+  // ==========================================================
+  // DELIVERED
+  //
+  // Only SENT/NULL can transition to DELIVERED.
+  // The conditional update is atomic, preventing two
+  // simultaneous Meta webhooks from incrementing twice.
+  // ==========================================================
+
+  if (status === 'DELIVERED') {
+    return this.prisma.$transaction(async (tx) => {
+      const updated =
+        await tx.broadcastRecipient.updateMany({
+          where: {
+            id: recipient.id,
+            OR: [
+              {
+                deliveryStatus: null,
+              },
+              {
+                deliveryStatus: 'SENT',
+              },
+            ],
+          },
+          data: {
+            deliveryStatus: 'DELIVERED',
+          },
+        });
+
+      if (updated.count === 1) {
+        await tx.broadcast.update({
+          where: {
+            id: recipient.broadcastId,
+          },
+          data: {
+            deliveredCount: {
+              increment: 1,
+            },
+          },
+        });
+      }
+
+      return tx.broadcastRecipient.findUnique({
+        where: {
+          id: recipient.id,
+        },
+      });
+    });
+  }
+
+  // ==========================================================
+  // READ
+  //
+  // There are two valid transitions:
+  //
+  // NULL/SENT -> READ
+  //     => increment read + delivered
+  //
+  // DELIVERED -> READ
+  //     => increment read only
+  //
+  // Both are conditional atomic updates.
+  // ==========================================================
+
+  if (status === 'READ') {
+    return this.prisma.$transaction(async (tx) => {
+      // First attempt:
+      // NULL/SENT -> READ
+      const fromSent =
+        await tx.broadcastRecipient.updateMany({
+          where: {
+            id: recipient.id,
+            OR: [
+              {
+                deliveryStatus: null,
+              },
+              {
+                deliveryStatus: 'SENT',
+              },
+            ],
+          },
+          data: {
+            deliveryStatus: 'READ',
+          },
+        });
+
+      if (fromSent.count === 1) {
+        await tx.broadcast.update({
+          where: {
+            id: recipient.broadcastId,
+          },
+          data: {
+            deliveredCount: {
+              increment: 1,
+            },
+            readCount: {
+              increment: 1,
+            },
+          },
+        });
+
+        return tx.broadcastRecipient.findUnique({
+          where: {
+            id: recipient.id,
+          },
+        });
+      }
+
+      // Second attempt:
+      // DELIVERED -> READ
+      const fromDelivered =
+        await tx.broadcastRecipient.updateMany({
+          where: {
+            id: recipient.id,
+            deliveryStatus: 'DELIVERED',
+          },
+          data: {
+            deliveryStatus: 'READ',
+          },
+        });
+
+      if (fromDelivered.count === 1) {
+        await tx.broadcast.update({
+          where: {
+            id: recipient.broadcastId,
+          },
+          data: {
+            readCount: {
+              increment: 1,
+            },
+          },
+        });
+      }
+
+      return tx.broadcastRecipient.findUnique({
+        where: {
+          id: recipient.id,
+        },
+      });
+    });
+  }
+
+  // ==========================================================
+  // FAILED
+  //
+  // Never downgrade an already-read recipient.
+  // ==========================================================
+
+  await this.prisma.broadcastRecipient.updateMany({
+    where: {
+      id: recipient.id,
+      OR: [
+        {
+          deliveryStatus: null,
+        },
+        {
+          deliveryStatus: 'SENT',
+        },
+        {
+          deliveryStatus: 'DELIVERED',
+        },
+      ],
+    },
+    data: {
+      deliveryStatus: 'FAILED',
+      status: 'FAILED',
+      error:
+        error ??
+        'WhatsApp delivery failed',
+    },
+  });
+
+  return this.prisma.broadcastRecipient.findUnique({
+    where: {
+      id: recipient.id,
+    },
+  });
+}
 }

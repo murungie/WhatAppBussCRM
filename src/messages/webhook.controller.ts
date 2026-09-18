@@ -12,7 +12,7 @@ import type { Response } from 'express';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { MessagesService } from './messages.service';
-
+import { BroadcastsService } from '../broadcasts/broadcasts.service';
 
 @Controller('webhook/whatsapp')
 export class WebhookController {
@@ -22,6 +22,8 @@ export class WebhookController {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly messagesService: MessagesService,
+    private readonly broadcastsService: BroadcastsService,
+
   ) {}
 
   // ==========================================================
@@ -243,6 +245,7 @@ export class WebhookController {
       const existingMessage =
         await this.prisma.message.findFirst({
           where: {
+             businessId,
             waMessageId,
           },
         });
@@ -377,73 +380,134 @@ export class WebhookController {
   // ==========================================================
 
   private async processMessageStatus(
-    businessId: string,
-    status: any,
-  ) {
-    try {
-      const waMessageId = status?.id;
-      const statusValue = status?.status;
+  businessId: string,
+  status: any,
+) {
+  try {
+    const waMessageId = status?.id;
+    const statusValue = status?.status;
 
-      if (!waMessageId || !statusValue) {
-        return;
+    if (!waMessageId || !statusValue) {
+      return;
+    }
+
+    const normalizedStatus = statusValue
+      .trim()
+      .toUpperCase();
+
+    const allowedStatuses = [
+      'SENT',
+      'DELIVERED',
+      'READ',
+      'FAILED',
+    ] as const;
+
+    if (
+      !allowedStatuses.includes(
+        normalizedStatus as (typeof allowedStatuses)[number],
+      )
+    ) {
+      this.logger.warn(
+        `Ignoring unsupported WhatsApp message status "${statusValue}" for ${waMessageId}`,
+      );
+      return;
+    }
+
+    this.logger.log(
+      `WhatsApp message ${waMessageId} status: ${normalizedStatus.toLowerCase()}`,
+    );
+
+    // ------------------------------------------------------
+    // Delivery failure details
+    // ------------------------------------------------------
+
+    let deliveryError: string | undefined;
+
+    if (normalizedStatus === 'FAILED') {
+      const errors = status?.errors;
+
+      if (Array.isArray(errors) && errors.length > 0) {
+        deliveryError = JSON.stringify(errors);
+
+        this.logger.error(
+          `WhatsApp delivery errors for ${waMessageId}: ${deliveryError}`,
+        );
+      } else {
+        this.logger.warn(
+          `WhatsApp message ${waMessageId} failed without error details in the webhook payload`,
+        );
       }
+    }
 
-      this.logger.log(
-        `WhatsApp message ${waMessageId} status: ${statusValue}`,
+    // ------------------------------------------------------
+    // Update normal message history
+    // ------------------------------------------------------
+
+    const updatedMessage =
+      await this.messagesService.updateMessageStatus({
+        businessId,
+        waMessageId,
+        status: normalizedStatus as
+          | 'SENT'
+          | 'DELIVERED'
+          | 'READ'
+          | 'FAILED',
+      });
+
+    // ------------------------------------------------------
+    // Update broadcast analytics
+    // ------------------------------------------------------
+
+    const updatedRecipient =
+      await this.broadcastsService.updateBroadcastDeliveryStatus(
+        businessId,
+        waMessageId,
+        normalizedStatus as
+          | 'SENT'
+          | 'DELIVERED'
+          | 'READ'
+          | 'FAILED',
+        deliveryError,
       );
 
-      // ------------------------------------------------------
-      // IMPORTANT:
-      // Meta provides additional error information when
-      // delivery fails.
-      // ------------------------------------------------------
+    // ------------------------------------------------------
+    // Nothing matched locally
+    // ------------------------------------------------------
 
-      if (
-        statusValue.toLowerCase() === 'failed'
-      ) {
-        const errors = status?.errors;
+    if (!updatedMessage && !updatedRecipient) {
+      this.logger.warn(
+        `No local message or broadcast recipient found for WhatsApp message ${waMessageId}`,
+      );
 
-        if (
-          Array.isArray(errors) &&
-          errors.length > 0
-        ) {
-          this.logger.error(
-            `WhatsApp delivery errors for ${waMessageId}: ${JSON.stringify(
-              errors,
-            )}`,
-          );
-        } else {
-          this.logger.warn(
-            `WhatsApp message ${waMessageId} failed without error details in the webhook payload`,
-          );
-        }
-      }
+      return;
+    }
 
-      const updatedMessage =
-        await this.messagesService.updateMessageStatus({
-          businessId,
-          waMessageId,
-          status: statusValue,
-        });
+    // ------------------------------------------------------
+    // Log normal message update
+    // ------------------------------------------------------
 
-      if (!updatedMessage) {
-        this.logger.warn(
-          `No local message found for WhatsApp message ${waMessageId}`,
-        );
-
-        return;
-      }
-
+    if (updatedMessage) {
       this.logger.log(
         `Message ${updatedMessage.id} updated to ${updatedMessage.status}`,
       );
-    } catch (error) {
-      this.logger.error(
-        'Failed to process WhatsApp message status',
-        error instanceof Error
-          ? error.stack
-          : String(error),
+    }
+
+    // ------------------------------------------------------
+    // Log broadcast recipient update
+    // ------------------------------------------------------
+
+    if (updatedRecipient) {
+      this.logger.log(
+        `Broadcast recipient ${updatedRecipient.id} delivery status updated to ${updatedRecipient.deliveryStatus}`,
       );
     }
+  } catch (error) {
+    this.logger.error(
+      'Failed to process WhatsApp message status',
+      error instanceof Error
+        ? error.stack
+        : String(error),
+    );
   }
+}
 }

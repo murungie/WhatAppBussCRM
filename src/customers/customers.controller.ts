@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 
@@ -20,17 +21,30 @@ export class CustomersController {
     private readonly customersService: CustomersService,
   ) {}
 
-  // ============================================================
-  // GET ALL CUSTOMERS
+   // ============================================================
+  // GET CUSTOMERS
+  // GET /customers?page=1&limit=20&search=software
   // ============================================================
 
   @Get()
   findAll(
     @CurrentBusiness()
     business: { businessId: string },
+
+    @Query('page')
+    page?: string,
+
+    @Query('limit')
+    limit?: string,
+
+    @Query('search')
+    search?: string,
   ) {
     return this.customersService.findAll(
       business.businessId,
+      page ? Number(page) : 1,
+      limit ? Number(limit) : 20,
+      search,
     );
   }
 

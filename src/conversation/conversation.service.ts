@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 
-
 @Injectable()
 export class ConversationService {
   private readonly windowMs = 24 * 60 * 60 * 1000;
@@ -75,17 +74,19 @@ export class ConversationService {
   }
 
   getMessagingEligibility(
-  lastInboundAt: Date | null,
-) {
-  const conversation =
-    this.getConversationStatus(
-      lastInboundAt,
-    );
+    lastInboundAt: Date | null,
+  ) {
+    const conversation =
+      this.getConversationStatus(
+        lastInboundAt,
+      );
 
-  return {
-    ...conversation,
-    canSendFreeForm: conversation.isOpen,
-    requiresTemplate: !conversation.isOpen,
-  };
-}
+    return {
+      ...conversation,
+      canSendFreeForm:
+        conversation.isOpen,
+      requiresTemplate:
+        !conversation.isOpen,
+    };
+  }
 }

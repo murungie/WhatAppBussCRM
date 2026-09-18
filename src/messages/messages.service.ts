@@ -8,6 +8,7 @@ import { Direction, MessageStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CustomersService } from '../customers/customers.service';
 import { WhatsappClientService } from '../whatsapp/whatsapp-client.service';
+import { ConversationService } from '../conversation/conversation.service';
 import { SendMessageDto } from './dto/send-message.dto';
 
 @Injectable()
@@ -16,6 +17,7 @@ export class MessagesService {
     private readonly prisma: PrismaService,
     private readonly customersService: CustomersService,
     private readonly whatsappClient: WhatsappClientService,
+    private readonly conversationService: ConversationService,
   ) {}
 
   // ============================================================
@@ -226,50 +228,86 @@ const outboundMessage =
 async updateMessageStatus(params: {
   businessId: string;
   waMessageId: string;
-  status: string;
+  status:
+    | 'SENT'
+    | 'DELIVERED'
+    | 'READ'
+    | 'FAILED';
 }) {
   const normalizedStatus =
-    params.status.trim().toUpperCase();
-
-  const allowedStatuses = [
-    'SENT',
-    'DELIVERED',
-    'READ',
-    'FAILED',
-  ] as const;
-
-  if (
-    !allowedStatuses.includes(
-      normalizedStatus as
-        (typeof allowedStatuses)[number],
-    )
-  ) {
-    return null;
-  }
+    params.status.trim().toUpperCase() as
+      | 'SENT'
+      | 'DELIVERED'
+      | 'READ'
+      | 'FAILED';
 
   const message =
-  await this.prisma.message.findFirst({
-    where: {
-      waMessageId: params.waMessageId,
-      businessId: params.businessId,
-    },
-  });
+    await this.prisma.message.findFirst({
+      where: {
+        waMessageId: params.waMessageId,
+        businessId: params.businessId,
+      },
+    });
 
   if (!message) {
     return null;
   }
+
+  const currentStatus =
+    message.status as
+      | 'SENT'
+      | 'DELIVERED'
+      | 'READ'
+      | 'FAILED';
+
+  // ----------------------------------------------------------
+  // Duplicate event
+  // ----------------------------------------------------------
+
+  if (currentStatus === normalizedStatus) {
+    return message;
+  }
+
+  // ----------------------------------------------------------
+  // Never downgrade a message
+  // ----------------------------------------------------------
+
+  if (currentStatus === 'READ') {
+    return message;
+  }
+
+  if (
+    currentStatus === 'DELIVERED' &&
+    normalizedStatus === 'SENT'
+  ) {
+    return message;
+  }
+
+  // ----------------------------------------------------------
+  // Failed delivery
+  // ----------------------------------------------------------
+
+  if (normalizedStatus === 'FAILED') {
+    return this.prisma.message.update({
+      where: {
+        id: message.id,
+      },
+      data: {
+        status: 'FAILED',
+      },
+    });
+  }
+
+  // ----------------------------------------------------------
+  // Normal progression
+  // ----------------------------------------------------------
 
   return this.prisma.message.update({
     where: {
       id: message.id,
     },
     data: {
-      status:
-        normalizedStatus as
-          | 'SENT'
-          | 'DELIVERED'
-          | 'READ'
-          | 'FAILED',
+      status: normalizedStatus,
     },
   });
 }
@@ -443,6 +481,124 @@ async updateMessageStatus(params: {
           b.messages[0].createdAt.getTime() -
           a.messages[0].createdAt.getTime(),
       );
+  }
+
+
+  // ============================================================
+  // GET PAGINATED CUSTOMER CONVERSATION
+  // ============================================================
+
+  async getCustomerConversation(
+    businessId: string,
+    customerId: string,
+    page = 1,
+    limit = 50,
+  ) {
+    const customer =
+      await this.prisma.customer.findFirst({
+        where: {
+          id: customerId,
+          businessId,
+        },
+        select: {
+          id: true,
+          name: true,
+          phoneNumber: true,
+          lastInboundAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+    if (!customer) {
+      throw new NotFoundException(
+        'Customer not found',
+      );
+    }
+
+    // ----------------------------------------------------------
+    // Protect the API from unreasonable values
+    // ----------------------------------------------------------
+
+    const safePage =
+      Number.isFinite(page) && page > 0
+        ? Math.floor(page)
+        : 1;
+
+    const safeLimit =
+      Number.isFinite(limit) && limit > 0
+        ? Math.min(Math.floor(limit), 100)
+        : 50;
+
+    const skip =
+      (safePage - 1) * safeLimit;
+
+    // ----------------------------------------------------------
+    // Get total message count + requested page
+    // ----------------------------------------------------------
+
+    const [total, messages] =
+      await Promise.all([
+        this.prisma.message.count({
+          where: {
+            businessId,
+            customerId,
+          },
+        }),
+
+        this.prisma.message.findMany({
+          where: {
+            businessId,
+            customerId,
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+          skip,
+          take: safeLimit,
+          select: {
+            id: true,
+            direction: true,
+            content: true,
+            waMessageId: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        }),
+      ]);
+
+    // ----------------------------------------------------------
+    // Reverse page so messages are chronological
+    // ----------------------------------------------------------
+
+    messages.reverse();
+
+    const totalPages =
+      Math.ceil(total / safeLimit);
+
+    return {
+      customer,
+
+      conversation:
+        this.conversationService
+          .getMessagingEligibility(
+            customer.lastInboundAt,
+          ),
+
+      messages,
+
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages,
+        hasNextPage:
+          safePage < totalPages,
+        hasPreviousPage:
+          safePage > 1,
+      },
+    };
   }
 
  async sendTemplateTest(

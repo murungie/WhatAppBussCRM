@@ -6,20 +6,19 @@ import { WebhookController } from './webhook.controller';
 
 import { CustomersModule } from '../customers/customers.module';
 import { WhatsappClientService } from '../whatsapp/whatsapp-client.service';
-
+import { BroadcastsModule } from '../broadcasts/broadcasts.module';
 import { ConversationModule } from '../conversation/conversation.module';
-import { ConversationService } from './conversation.service';
 
 @Module({
   imports: [
     CustomersModule,
     ConversationModule,
+    BroadcastsModule,
   ],
 
   providers: [
     MessagesService,
     WhatsappClientService,
-    ConversationService,
   ],
 
   controllers: [
@@ -30,7 +29,6 @@ import { ConversationService } from './conversation.service';
   exports: [
     MessagesService,
     WhatsappClientService,
-    ConversationService,
   ],
 })
 export class MessagesModule {}

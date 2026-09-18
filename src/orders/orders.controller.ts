@@ -7,6 +7,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentBusiness } from '../common/decorators/current-business.decorator';
 import { OrdersService } from './orders.service';
@@ -16,11 +17,17 @@ import { MarkPaidDto } from './dto/mark-paid.dto';
 @Controller('orders')
 @UseGuards(JwtAuthGuard)
 export class OrdersController {
-  constructor(private ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+  ) {}
 
   @Get()
-  findAll(@CurrentBusiness() business: { businessId: string }) {
-    return this.ordersService.findAll(business.businessId);
+  findAll(
+    @CurrentBusiness() business: { businessId: string },
+  ) {
+    return this.ordersService.findAll(
+      business.businessId,
+    );
   }
 
   @Post()
@@ -28,7 +35,10 @@ export class OrdersController {
     @CurrentBusiness() business: { businessId: string },
     @Body() dto: CreateOrderDto,
   ) {
-    return this.ordersService.create(business.businessId, dto);
+    return this.ordersService.create(
+      business.businessId,
+      dto,
+    );
   }
 
   @Patch(':id/mark-paid')
@@ -37,7 +47,11 @@ export class OrdersController {
     @Param('id') id: string,
     @Body() dto: MarkPaidDto,
   ) {
-    return this.ordersService.markPaid(business.businessId, id, dto);
+    return this.ordersService.markPaid(
+      business.businessId,
+      id,
+      dto,
+    );
   }
 
   @Patch(':id/cancel')
@@ -45,6 +59,9 @@ export class OrdersController {
     @CurrentBusiness() business: { businessId: string },
     @Param('id') id: string,
   ) {
-    return this.ordersService.cancel(business.businessId, id);
+    return this.ordersService.cancel(
+      business.businessId,
+      id,
+    );
   }
 }

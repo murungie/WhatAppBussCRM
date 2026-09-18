@@ -12,7 +12,8 @@ model Business {
   name            String
   ownerEmail      String  @unique
   passwordHash    String
-  whatsappPhoneId String?
+  whatsappPhoneId String? @unique
+
   whatsappToken   String?
 
   createdAt DateTime @default(now())
@@ -46,7 +47,7 @@ model Customer {
   broadcastRecipients BroadcastRecipient[]
 
   @@unique([businessId, phoneNumber])
-  @@index([businessId])
+  @@index([businessId, updatedAt])
   @@index([phoneNumber])
   @@map("customers")
 }
@@ -66,8 +67,11 @@ model Message {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+
+  @@unique([businessId, waMessageId])
   @@index([businessId])
   @@index([customerId])
+  @@index([businessId, customerId, createdAt])
   @@index([waMessageId])
   @@index([status])
   @@map("messages")
@@ -146,9 +150,11 @@ model Broadcast {
   segment String @default("ALL")
 
   status BroadcastStatus @default(DRAFT)
-
+queueJobId String? @unique
   totalRecipients Int @default(0)
   sentCount       Int @default(0)
+  deliveredCount Int @default(0)
+  readCount      Int @default(0)
   failedCount     Int @default(0)
 
   scheduledAt DateTime?
@@ -160,8 +166,11 @@ model Broadcast {
   recipients BroadcastRecipient[]
 
   @@index([businessId])
+  @@index([businessId, createdAt])
   @@index([status])
+    @@index([status, scheduledAt])
   @@index([scheduledAt])
+  @@index([queueJobId])
   @@map("broadcasts")
 }
 
@@ -175,7 +184,7 @@ model BroadcastRecipient {
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   status BroadcastRecipientStatus @default(PENDING)
-
+  deliveryStatus MessageStatus?
   waMessageId String?
   error       String?
 
@@ -184,9 +193,13 @@ model BroadcastRecipient {
   updatedAt DateTime  @updatedAt
 
   @@unique([broadcastId, customerId])
-  @@index([broadcastId])
+  @@unique([waMessageId])
+@@index([broadcastId, status])
+  @@index([broadcastId, deliveryStatus])
+
   @@index([customerId])
   @@index([status])
+  @@index([deliveryStatus])
   @@map("broadcast_recipients")
 }
 

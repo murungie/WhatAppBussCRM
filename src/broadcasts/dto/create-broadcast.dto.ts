@@ -1,6 +1,7 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsDateString,
   IsEnum,
   IsOptional,
   IsString,
@@ -42,4 +43,8 @@ export class CreateBroadcastDto {
   @IsString()
   @MaxLength(50)
   segment?: string;
+
+  @IsOptional()
+  @IsDateString()
+  scheduledAt?: string;
 }

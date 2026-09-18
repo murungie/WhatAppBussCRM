@@ -89,17 +89,107 @@ export class CustomersService {
   // GET ALL CUSTOMERS
   // ==========================================================
 
+   // ==========================================================
+  // GET PAGINATED / SEARCHABLE CUSTOMERS
+  // ==========================================================
+
   async findAll(
     businessId: string,
+    page = 1,
+    limit = 20,
+    search?: string,
   ) {
-    return this.prisma.customer.findMany({
-      where: {
-        businessId,
+    const safePage =
+      Number.isFinite(page) && page > 0
+        ? Math.floor(page)
+        : 1;
+
+    const safeLimit =
+      Number.isFinite(limit) && limit > 0
+        ? Math.min(Math.floor(limit), 100)
+        : 20;
+
+    const normalizedSearch =
+      search?.trim();
+
+    const where = {
+      businessId,
+      ...(normalizedSearch
+        ? {
+            OR: [
+              {
+                name: {
+                  contains: normalizedSearch,
+                  mode: 'insensitive' as const,
+                },
+              },
+              {
+                phoneNumber: {
+                  contains: normalizedSearch,
+                  mode: 'insensitive' as const,
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+
+    const skip =
+      (safePage - 1) * safeLimit;
+
+    const [total, customers] =
+      await Promise.all([
+        this.prisma.customer.count({
+          where,
+        }),
+
+        this.prisma.customer.findMany({
+          where,
+          orderBy: [
+            {
+              updatedAt: 'desc',
+            },
+            {
+              createdAt: 'desc',
+            },
+          ],
+          skip,
+          take: safeLimit,
+          select: {
+            id: true,
+            name: true,
+            phoneNumber: true,
+            lastOrderAt: true,
+            lastInboundAt: true,
+            totalSpent: true,
+            createdAt: true,
+            updatedAt: true,
+            _count: {
+              select: {
+                messages: true,
+                orders: true,
+              },
+            },
+          },
+        }),
+      ]);
+
+    const totalPages =
+      Math.ceil(total / safeLimit);
+
+    return {
+      data: customers,
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages,
+        hasNextPage:
+          safePage < totalPages,
+        hasPreviousPage:
+          safePage > 1,
       },
-      orderBy: {
-        lastOrderAt: 'desc',
-      },
-    });
+    };
   }
 
   // ==========================================================

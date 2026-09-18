@@ -3,6 +3,8 @@ import {
   Controller,
   Get,
   Post,
+  Param,
+   Query,
   UseGuards,
 } from '@nestjs/common';
 
@@ -26,7 +28,20 @@ export class MessagesController {
       business.businessId,
     );
   }
-
+    @Get('customer/:customerId')
+  getCustomerConversation(
+    @CurrentBusiness() business: { businessId: string },
+    @Param('customerId') customerId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.messagesService.getCustomerConversation(
+      business.businessId,
+      customerId,
+      page ? Number(page) : 1,
+      limit ? Number(limit) : 50,
+    );
+  }
   @Post('send')
   sendReply(
     @CurrentBusiness() business: { businessId: string },
