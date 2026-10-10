@@ -8,13 +8,22 @@ datasource db {
 }
 
 model Business {
-  id              String  @id @default(uuid())
-  name            String
-  ownerEmail      String  @unique
-  passwordHash    String
-  whatsappPhoneId String? @unique
+  id           String @id @default(uuid())
+  name         String
+  ownerEmail   String @unique
+  passwordHash String
 
+  // Business profile
+  businessPhone String?
+  industry      String?
+
+  // Existing WhatsApp connection
+  whatsappPhoneId String? @unique
   whatsappToken   String?
+
+  // Self-onboarding
+  onboardingStatus OnboardingStatus @default(PROFILE_PENDING)
+  accountStatus    AccountStatus    @default(ACTIVE)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -34,9 +43,9 @@ model Customer {
   phoneNumber String
   name        String?
 
-  lastOrderAt DateTime?
+  lastOrderAt   DateTime?
   lastInboundAt DateTime?
-  totalSpent  Decimal   @default(0) @db.Decimal(12, 2)
+  totalSpent    Decimal   @default(0) @db.Decimal(12, 2)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -66,7 +75,6 @@ model Message {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
 
   @@unique([businessId, waMessageId])
   @@index([businessId])
@@ -149,13 +157,13 @@ model Broadcast {
 
   segment String @default("ALL")
 
-  status BroadcastStatus @default(DRAFT)
-queueJobId String? @unique
-  totalRecipients Int @default(0)
-  sentCount       Int @default(0)
-  deliveredCount Int @default(0)
-  readCount      Int @default(0)
-  failedCount     Int @default(0)
+  status          BroadcastStatus @default(DRAFT)
+  queueJobId      String?         @unique
+  totalRecipients Int             @default(0)
+  sentCount       Int             @default(0)
+  deliveredCount  Int             @default(0)
+  readCount       Int             @default(0)
+  failedCount     Int             @default(0)
 
   scheduledAt DateTime?
   sentAt      DateTime?
@@ -168,7 +176,7 @@ queueJobId String? @unique
   @@index([businessId])
   @@index([businessId, createdAt])
   @@index([status])
-    @@index([status, scheduledAt])
+  @@index([status, scheduledAt])
   @@index([scheduledAt])
   @@index([queueJobId])
   @@map("broadcasts")
@@ -183,10 +191,10 @@ model BroadcastRecipient {
   customerId String
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  status BroadcastRecipientStatus @default(PENDING)
+  status         BroadcastRecipientStatus @default(PENDING)
   deliveryStatus MessageStatus?
-  waMessageId String?
-  error       String?
+  waMessageId    String?
+  error          String?
 
   sentAt    DateTime?
   createdAt DateTime  @default(now())
@@ -194,9 +202,8 @@ model BroadcastRecipient {
 
   @@unique([broadcastId, customerId])
   @@unique([waMessageId])
-@@index([broadcastId, status])
+  @@index([broadcastId, status])
   @@index([broadcastId, deliveryStatus])
-
   @@index([customerId])
   @@index([status])
   @@index([deliveryStatus])
@@ -241,4 +248,15 @@ enum OrderStatus {
   PENDING
   PAID
   CANCELLED
+}
+
+enum OnboardingStatus {
+  PROFILE_PENDING
+  WHATSAPP_PENDING
+  COMPLETED
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
 }
