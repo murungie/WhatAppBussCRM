@@ -1,3 +1,4 @@
+
 {
   "compilerOptions": {
     "module": "nodenext",
@@ -14,8 +15,7 @@
     "sourceMap": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "baseUrl": "./",
-    "incremental": true,
+    "incremental": false,
     "skipLibCheck": true,
     "strictNullChecks": true,
     "forceConsistentCasingInFileNames": true,
