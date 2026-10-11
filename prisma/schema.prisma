@@ -17,9 +17,10 @@ model Business {
   businessPhone String?
   industry      String?
 
-  // Existing WhatsApp connection
-  whatsappPhoneId String? @unique
-  whatsappToken   String?
+  // WhatsApp Cloud API connection
+wabaId          String?
+whatsappPhoneId String? @unique
+whatsappToken   String?
 
   // Self-onboarding
   onboardingStatus OnboardingStatus @default(PROFILE_PENDING)

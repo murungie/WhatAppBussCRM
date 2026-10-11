@@ -1,3 +1,4 @@
+
 import {
   IsEmail,
   IsNotEmpty,
@@ -17,15 +18,4 @@ export class UpdateSettingsDto {
   @IsEmail()
   @MaxLength(255)
   ownerEmail?: string;
-
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  whatsappPhoneId?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  whatsappToken?: string;
 }

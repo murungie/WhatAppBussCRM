@@ -136,17 +136,19 @@ export class WhatsappClientService {
     body: JSON.stringify(payload),
   });
 
+  
   if (!res.ok) {
     const errorBody = await res.text();
 
     this.logger.error(
-      `WhatsApp template send failed: ${res.status} ${errorBody}`,
+      `WhatsApp template send failed: ${res.status}`,
     );
 
     throw new Error(
       `WhatsApp template API error (${res.status}): ${errorBody}`,
     );
   }
+
 
   return res.json();
 }

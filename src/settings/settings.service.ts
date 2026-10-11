@@ -1,3 +1,4 @@
+
 import {
   ConflictException,
   Injectable,
@@ -40,16 +41,15 @@ export class SettingsService {
       businessName: business.name,
       ownerEmail: business.ownerEmail,
       whatsappPhoneId: business.whatsappPhoneId,
-      whatsappConfigured:
-        Boolean(
-          business.whatsappPhoneId &&
-          business.whatsappToken,
-        ),
+      whatsappConfigured: Boolean(
+        business.whatsappPhoneId &&
+        business.whatsappToken,
+      ),
       whatsappTokenConfigured:
         Boolean(business.whatsappToken),
       whatsappTokenMasked:
         business.whatsappToken
-          ? `••••••••${business.whatsappToken.slice(-4)}`
+          ? `â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢${business.whatsappToken.slice(-4)}`
           : null,
       createdAt: business.createdAt,
       updatedAt: business.updatedAt,
@@ -81,7 +81,7 @@ export class SettingsService {
       const emailOwner =
         await this.prisma.business.findUnique({
           where: {
-            ownerEmail: dto.ownerEmail,
+            ownerEmail: dto.ownerEmail.trim().toLowerCase(),
           },
         });
 
@@ -98,8 +98,6 @@ export class SettingsService {
     const data: {
       name?: string;
       ownerEmail?: string;
-      whatsappPhoneId?: string;
-      whatsappToken?: string;
     } = {};
 
     if (dto.businessName !== undefined) {
@@ -109,16 +107,6 @@ export class SettingsService {
     if (dto.ownerEmail !== undefined) {
       data.ownerEmail =
         dto.ownerEmail.trim().toLowerCase();
-    }
-
-    if (dto.whatsappPhoneId !== undefined) {
-      data.whatsappPhoneId =
-        dto.whatsappPhoneId.trim();
-    }
-
-    if (dto.whatsappToken !== undefined) {
-      data.whatsappToken =
-        dto.whatsappToken.trim();
     }
 
     await this.prisma.business.update({

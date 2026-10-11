@@ -139,6 +139,7 @@ async completeProfile(
 
   return updatedBusiness;
 }
+  
   private buildToken(
     businessId: string,
     email: string,
@@ -154,4 +155,5 @@ async completeProfile(
       onboardingStatus,
     };
   }
+
 }

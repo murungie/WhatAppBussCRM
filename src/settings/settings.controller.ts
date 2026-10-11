@@ -2,13 +2,15 @@ import {
   Body,
   Controller,
   Get,
+  Post,
   Patch,
   UseGuards,
 } from '@nestjs/common';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentBusiness } from '../common/decorators/current-business.decorator';
-
+import { ConnectWhatsAppDto } from './dto/connect-whatsapp.dto';
+import { WhatsAppConnectionService } from './whatsapp-connection.service';
 import { SettingsService } from './settings.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 
@@ -17,6 +19,7 @@ import { UpdateSettingsDto } from './dto/update-settings.dto';
 export class SettingsController {
   constructor(
     private readonly settingsService: SettingsService,
+    private readonly whatsappConnectionService: WhatsAppConnectionService,
   ) {}
 
   @Get()
@@ -29,6 +32,7 @@ export class SettingsController {
     );
   }
 
+  
   @Patch()
   updateSettings(
     @CurrentBusiness()
@@ -40,4 +44,17 @@ export class SettingsController {
       dto,
     );
   }
+
+  @Post('whatsapp/connect')
+connectWhatsApp(
+  @CurrentBusiness()
+  business: { businessId: string },
+  @Body() dto: ConnectWhatsAppDto,
+) {
+  return this.whatsappConnectionService.connect(
+    business.businessId,
+    dto,
+  );
+}
+
 }
